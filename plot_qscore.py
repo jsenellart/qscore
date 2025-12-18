@@ -1,9 +1,8 @@
-"""
-Plot beta vs N and time vs N Q-score graphs.
-"""
+"""Plot beta vs N and time vs N Q-score graphs for one or more datasets."""
 import argparse
 import json
 import os
+from itertools import cycle
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -24,7 +23,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-f",
         "--file",
-        help="Name of data file. (within /data folder)",
+        dest="files",
+        nargs="+",
+        help="One or more data files (within /data unless absolute path)",
         required=True,
     )
     parser.add_argument(
@@ -45,38 +46,39 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def plot_graph(
-    file: str, exact: Optional[bool] = False, time_constraint: Optional[bool] = False
-) -> None:
-    """
-    Plot Q-score graphs. Both the beta vs N and time vs N graphs are plotted.
+def _resolve_file_path(file_arg: str) -> str:
+    """Resolve user-provided file path to an existing location."""
 
-    Args:
-        file: Path to data file (within /data folder).
-        exact: Whether to include exact results in beta calculation.
-            Only suitable for small problem sizes.
-    """
-    # Load data from json file.
-    with open(file) as json_file:
-        data = json.load(json_file)
+    if os.path.exists(file_arg):
+        return file_arg
+    candidate = os.path.join("data", file_arg)
+    if os.path.exists(candidate):
+        return candidate
+    raise FileNotFoundError(f"Unable to locate data file: {file_arg}")
+
+
+def _prepare_dataset(
+    data: dict, exact: bool, time_constraint: bool
+) -> Optional[dict]:
+    """Compute beta/time statistics for a dataset."""
 
     problem_range = np.array(
         sorted(
             int(k)
             for k, v in data.items()
-            if k != "settings" and isinstance(v, dict) and v.get("result") not in (None, [])
+            if k != "settings"
+            and isinstance(v, dict)
+            and v.get("result") not in (None, [])
         )
     )
     if problem_range.size == 0:
-        print("No completed problem sizes found in data; skipping plot.")
-        return
+        return None
+
     problem_type = data["settings"]["PROBLEM_TYPE"]
     solver = data["settings"]["SOLVER"]
 
-    # Do beta-calculations
     mins_beta, maxes_beta, means_beta, stds_beta = [], [], [], []
     mins_time, maxes_time, means_time, stds_time = [], [], [], []
-
     plotted_sizes = []
 
     if exact:
@@ -89,7 +91,7 @@ def plot_graph(
             if len(results) == 0:
                 continue
 
-            graphs = []  # Calculate graphs from seed
+            graphs = []
             for _ in range(len(results)):
                 G = nx.erdos_renyi_graph(size, 1 / 2, seed=seed)
                 graphs.append(G)
@@ -97,7 +99,7 @@ def plot_graph(
 
             if "exact-result" in data[str(size)]:
                 exact_results = np.array(data[str(size)]["exact-result"])
-            else:  # Calculate exact result from graph
+            else:
                 exact_results = np.array(
                     [
                         one_exchange(G)[0]
@@ -114,19 +116,15 @@ def plot_graph(
                     if random_score == exact_result:
                         betas.append(1)
                     else:
-                        beta = (result - random_score) / (exact_result - random_score)
-                        betas.append(beta)
+                        betas.append((result - random_score) / (exact_result - random_score))
 
             elif problem_type == "max-clique":
                 for result, exact_result, G in zip(results, exact_results, graphs):
-                    random_score = np.average(
-                        [naive_clique_size(G) for _ in range(1000)]
-                    )
+                    random_score = np.average([naive_clique_size(G) for _ in range(1000)])
                     if random_score == exact_result:
                         betas.append(1)
                     else:
-                        beta = (result - random_score) / (exact_result - random_score)
-                        betas.append(beta)
+                        betas.append((result - random_score) / (exact_result - random_score))
 
             betas = np.array(betas)
             mins_beta.append(betas.min())
@@ -155,9 +153,7 @@ def plot_graph(
             if len(results) == 0:
                 continue
 
-            betas = np.array(
-                [calculate_beta_function(size, result) for result in results]
-            )
+            betas = np.array([calculate_beta_function(size, result) for result in results])
             mins_beta.append(betas.min())
             maxes_beta.append(betas.max())
             means_beta.append(betas.mean())
@@ -170,8 +166,7 @@ def plot_graph(
             plotted_sizes.append(size)
 
     if not plotted_sizes:
-        print("No valid data points found after filtering; skipping plot.")
-        return
+        return None
 
     mins_beta, maxes_beta, means_beta, stds_beta = (
         np.array(mins_beta),
@@ -195,89 +190,149 @@ def plot_graph(
     feasible_sizes = problem_range[feasible_mask]
     qscore = int(feasible_sizes.max()) if feasible_sizes.size else None
 
-    # Create plots:
+    return {
+        "problem_range": problem_range,
+        "mins_beta": mins_beta,
+        "maxes_beta": maxes_beta,
+        "means_beta": means_beta,
+        "stds_beta": stds_beta,
+        "mins_time": mins_time,
+        "maxes_time": maxes_time,
+        "means_time": means_time,
+        "stds_time": stds_time,
+        "problem_type": problem_type,
+        "solver": solver,
+        "qscore": qscore,
+    }
+
+
+def plot_graphs(
+    files: list[str], exact: Optional[bool] = False, time_constraint: Optional[bool] = False
+) -> None:
+    """
+    Plot Q-score graphs. Both the beta vs N and time vs N graphs are plotted.
+
+    Args:
+        files: Paths to data files.
+        exact: Whether to include exact results in beta calculation.
+            Only suitable for small problem sizes.
+    """
+    datasets = []
+    for file_arg in files:
+        try:
+            file_path = _resolve_file_path(file_arg)
+        except FileNotFoundError as exc:
+            print(exc)
+            continue
+
+        with open(file_path) as json_file:
+            data = json.load(json_file)
+
+        stats = _prepare_dataset(data, exact, time_constraint)
+        if stats is None:
+            print(f"No valid data points found in {file_arg}; skipping.")
+            continue
+
+        stats["file_path"] = file_path
+        stats["label"] = f"{stats['solver']} ({os.path.basename(file_path)})"
+        datasets.append(stats)
+
+    if not datasets:
+        print("No datasets available for plotting.")
+        return
+
+    problem_types = {dataset["problem_type"] for dataset in datasets}
+    if len(problem_types) != 1:
+        raise ValueError("All datasets must have the same PROBLEM_TYPE to be plotted together.")
+    problem_type = problem_types.pop()
+
+    all_sizes = sorted({size for dataset in datasets for size in dataset["problem_range"]})
+    x_min = max(min(all_sizes) - 1, 0)
+    x_max = max(all_sizes) + 1
+    time_ylim = min(90, max(np.max(dataset["maxes_time"]) for dataset in datasets) * 1.2)
+
     fig, axs = plt.subplots(1, 2, figsize=(12, 8))
-    qscore_label = qscore if qscore is not None else "N/A"
-    fig.suptitle(f"Q-score {problem_type} = {qscore_label} for solver: {solver}")
+    fig.suptitle(f"Q-score {problem_type} comparison ({len(datasets)} configurations)")
 
-    # Beta-plot
-    axs[0].fill_between(
-        problem_range,
-        mins_beta,
-        maxes_beta,
-        color="tab:blue",
-        alpha=0.15,
-        label="min-max range",
-    )
+    color_cycle = cycle(plt.rcParams["axes.prop_cycle"].by_key().get("color", ["tab:blue"]))
+    for dataset in datasets:
+        color = next(color_cycle)
+        problem_range = dataset["problem_range"]
+        qscore_label = dataset["qscore"] if dataset["qscore"] is not None else "N/A"
+        beta_line_label = f"{dataset['label']} (Q={qscore_label})"
 
-    beta_lower_std = means_beta - stds_beta
-    beta_upper_std = means_beta + stds_beta
-    if exact:
-        beta_upper_std = np.minimum(beta_upper_std, 1.0)
+        axs[0].fill_between(
+            problem_range,
+            dataset["mins_beta"],
+            dataset["maxes_beta"],
+            color=color,
+            alpha=0.1,
+        )
 
-    axs[0].fill_between(
-        problem_range,
-        beta_lower_std,
-        beta_upper_std,
-        color="tab:gray",
-        alpha=0.3,
-        label="±1σ",
-    )
-    axs[0].plot(
-        problem_range,
-        means_beta,
-        color="black",
-        marker="o",
-        linewidth=2,
-        label="mean beta",
-    )
+        beta_lower_std = dataset["means_beta"] - dataset["stds_beta"]
+        beta_upper_std = dataset["means_beta"] + dataset["stds_beta"]
+        if exact:
+            beta_upper_std = np.minimum(beta_upper_std, 1.0)
+
+        axs[0].fill_between(
+            problem_range,
+            beta_lower_std,
+            beta_upper_std,
+            color=color,
+            alpha=0.2,
+        )
+        axs[0].plot(
+            problem_range,
+            dataset["means_beta"],
+            color=color,
+            marker="o",
+            linewidth=2,
+            label=beta_line_label,
+        )
+
+        axs[1].fill_between(
+            problem_range,
+            dataset["mins_time"],
+            dataset["maxes_time"],
+            color=color,
+            alpha=0.1,
+        )
+        axs[1].fill_between(
+            problem_range,
+            np.maximum(dataset["means_time"] - dataset["stds_time"], 0),
+            dataset["means_time"] + dataset["stds_time"],
+            color=color,
+            alpha=0.2,
+        )
+        axs[1].plot(
+            problem_range,
+            dataset["means_time"],
+            color=color,
+            marker="o",
+            linewidth=2,
+            label=dataset["label"],
+        )
+
     axs[0].set_title(f"Beta {'(exact)' if exact else ''}")
-    x_min = max(problem_range.min() - 1, 0)
-    x_max = problem_range.max() + 1
     axs[0].set(
         xlabel="Problem size N",
         ylabel="Beta",
         xlim=[x_min, x_max],
         ylim=[-0.3, 1.5],
     )
-    axs[0].set_xticks(problem_range)
+    axs[0].set_xticks(all_sizes)
     axs[0].axhline(y=0.2, color="r", linestyle="--")
 
-    # Time-plot
     axs[1].set_title("Elapsed time")
     axs[1].set(
         xlabel="Problem size N",
         ylabel="Time (in s)",
         xlim=[x_min, x_max],
-        ylim=[0, min(90, max(maxes_time) * 1.2)],
+        ylim=[0, max(time_ylim, 1)],
     )
-    axs[1].set_xticks(problem_range)
-    axs[1].fill_between(
-        problem_range,
-        mins_time,
-        maxes_time,
-        color="tab:blue",
-        alpha=0.15,
-        label="min-max range",
-    )
-
-    axs[1].fill_between(
-        problem_range,
-        np.maximum(means_time - stds_time, 0),
-        means_time + stds_time,
-        color="tab:gray",
-        alpha=0.3,
-        label="±1σ",
-    )
-    axs[1].plot(
-        problem_range,
-        means_time,
-        color="black",
-        marker="o",
-        linewidth=2,
-        label="mean time",
-    )
+    axs[1].set_xticks(all_sizes)
     axs[1].axhline(y=60, color="r", linestyle="--")
+
     axs[0].legend(loc="lower right")
     axs[1].legend(loc="upper left")
 
@@ -286,8 +341,7 @@ def plot_graph(
 
 if __name__ == "__main__":
     args = parse_args()
-    file = f"data{os.sep}" + args.file
     exact = args.exact
     time_constraint = args.time_constraint
 
-    plot_graph(file, exact, time_constraint)
+    plot_graphs(args.files, exact, time_constraint)
