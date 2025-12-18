@@ -2,16 +2,16 @@
 import os
 import time
 from multiprocessing import AuthenticationError
-from typing import List, Optional, Tuple
+from typing import Optional
 
+from qiskit.circuit import ParameterVector, QuantumCircuit
+from qiskit.primitives import BackendSamplerV2, StatevectorSampler
+from qiskit.providers.backend import Backend
+from qiskit.providers.exceptions import QiskitBackendNotFoundError
+from qiskit.quantum_info import SparsePauliOp
 from qiskit_algorithms.minimum_eigensolvers import SamplingVQE
 from qiskit_algorithms.optimizers import COBYLA
 from qiskit_ibm_runtime import QiskitRuntimeService
-from qiskit.providers.backend import Backend
-from qiskit.providers.exceptions import QiskitBackendNotFoundError
-from qiskit.primitives import BackendSamplerV2, StatevectorSampler
-from qiskit.circuit import QuantumCircuit, ParameterVector
-from qiskit.quantum_info import SparsePauliOp
 from qiskit_optimization.algorithms import (
     MinimumEigenOptimizer,
     OptimizationResultStatus,
@@ -87,11 +87,11 @@ def initialize_backend(
 
 def _extract_ising_terms(
     operator: SparsePauliOp,
-) -> Tuple[List[Tuple[int, float]], List[Tuple[int, int, float]]]:
+) -> tuple[list[tuple[int, float]], list[tuple[int, int, float]]]:
     """Split an Ising operator into single- and two-qubit Z terms."""
 
-    single_z_terms: List[Tuple[int, float]] = []
-    zz_terms: List[Tuple[int, int, float]] = []
+    single_z_terms: list[tuple[int, float]] = []
+    zz_terms: list[tuple[int, int, float]] = []
 
     for coeff, pauli in zip(operator.coeffs, operator.paulis):
         if abs(coeff.imag) > 1e-8:
@@ -116,8 +116,8 @@ def _extract_ising_terms(
 
 def _build_qaoa_ansatz(
     num_qubits: int,
-    single_z_terms: List[Tuple[int, float]],
-    zz_terms: List[Tuple[int, int, float]],
+    single_z_terms: list[tuple[int, float]],
+    zz_terms: list[tuple[int, int, float]],
     reps: int = 1,
 ) -> QuantumCircuit:
     """Construct a parameterized QAOA circuit without deprecated n-local helpers."""
