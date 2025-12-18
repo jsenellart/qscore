@@ -179,25 +179,36 @@ def plot_graph(
     fig.suptitle(f"Q-score {problem_type} = {qscore} for solver: {solver}")
 
     # Beta-plot
-    axs[0].errorbar(
-        x=problem_range,
-        y=means_beta,
-        yerr=[means_beta - mins_beta, maxes_beta - means_beta],
-        fmt=".k",
-        ecolor="blue",
-        lw=1,
+    axs[0].fill_between(
+        problem_range,
+        mins_beta,
+        maxes_beta,
+        color="tab:blue",
+        alpha=0.15,
+        label="min-max range",
     )
 
-    if exact:  # Cap stdv at beta=1
-        yerr = np.array(
-            [
-                stds_beta,
-                np.array([min(i, 1 - j) for i, j in zip(stds_beta, means_beta)]),
-            ]
-        )
-    else:
-        yerr = stds_beta
-    axs[0].errorbar(x=problem_range, y=means_beta, yerr=yerr, fmt="ok", lw=2)
+    beta_lower_std = means_beta - stds_beta
+    beta_upper_std = means_beta + stds_beta
+    if exact:
+        beta_upper_std = np.minimum(beta_upper_std, 1.0)
+
+    axs[0].fill_between(
+        problem_range,
+        beta_lower_std,
+        beta_upper_std,
+        color="tab:gray",
+        alpha=0.3,
+        label="±1σ",
+    )
+    axs[0].plot(
+        problem_range,
+        means_beta,
+        color="black",
+        marker="o",
+        linewidth=2,
+        label="mean beta",
+    )
     axs[0].set_title(f"Beta {'(exact)' if exact else ''}")
     axs[0].set(
         xlabel="Problem size N",
@@ -215,16 +226,34 @@ def plot_graph(
         xlim=[0, problem_range[-1] + 5],
         ylim=[0, min(90, max(maxes_time) * 1.2)],
     )
-    axs[1].errorbar(
+    axs[1].fill_between(
+        problem_range,
+        mins_time,
+        maxes_time,
+        color="tab:blue",
+        alpha=0.15,
+        label="min-max range",
+    )
+
+    axs[1].fill_between(
+        problem_range,
+        np.maximum(means_time - stds_time, 0),
+        means_time + stds_time,
+        color="tab:gray",
+        alpha=0.3,
+        label="±1σ",
+    )
+    axs[1].plot(
         problem_range,
         means_time,
-        [means_time - mins_time, maxes_time - means_time],
-        fmt=".k",
-        ecolor="blue",
-        lw=1,
+        color="black",
+        marker="o",
+        linewidth=2,
+        label="mean time",
     )
-    axs[1].errorbar(problem_range, means_time, stds_time, fmt="ok", lw=2)
     axs[1].axhline(y=60, color="r", linestyle="--")
+    axs[0].legend(loc="lower right")
+    axs[1].legend(loc="upper left")
 
     plt.show()
 
