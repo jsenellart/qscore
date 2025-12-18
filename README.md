@@ -61,6 +61,14 @@ Multiple Q-score instances for various sizes can be run as follows:
     python plot_qscore.py -f "example.json" -e
     ```
 
+### Timeout behavior
+
+The `-t/--timeout` flag in `evaluate.py` and `calculate_qscore.py` enforces a
+real execution timeout for the corresponding solvers by running each instance in its own
+process. When the deadline is hit the child process is terminated and the
+instance is counted as `beta = 0`. Spawning these short-lived worker processes
+introduces a constant overhead (around 3–4 seconds); take this into account when choosing tight timeout values or when running large batches.
+
 ## Configuration
 
 To use this code we assume that the reader has installed the requirements and set up access to the required solvers. 

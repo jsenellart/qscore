@@ -1,19 +1,20 @@
 """Run the Q-score instances for various sizes and save data."""
+
 import json
+import math
 import os
 from concurrent.futures import ProcessPoolExecutor
-from typing import Optional, Tuple
+from typing import Optional
 
 import networkx as nx
 import numpy as np
+from evaluate import main
 from networkx import Graph
 from networkx.algorithms.approximation.maxcut import one_exchange
 
-from evaluate import main
-
 
 def _run_single_instance(
-    args: Tuple[
+    args: tuple[
         str,
         int,
         str,
@@ -23,8 +24,8 @@ def _run_single_instance(
         Optional[str],
         Optional[str],
         bool,
-    ]
-) -> Tuple[float, float, Optional[Graph]]:
+    ],
+) -> tuple[float, float, Optional[Graph]]:
     """Helper suitable for multiprocessing pools."""
 
     (
@@ -165,11 +166,29 @@ def calculate_qscore(
 
             seed = seeds_for_size[-1] + 1
 
-            print(
-                f"Finished problem size: {size}, "
-                f"average objective: {np.array(result).mean()}, "
-                f"average problem time: {np.array(times).mean():2f}."
+            completed_objectives = [
+                value for value in result if value is not None and not math.isnan(value)
+            ]
+            completed_count = len(completed_objectives)
+            total_instances = len(result)
+            avg_completed_objective = (
+                float(np.mean(completed_objectives))
+                if completed_objectives
+                else float("nan")
             )
+            avg_problem_time = float(np.array(times).mean()) if times else float("nan")
+
+            print(
+                f"Finished problem size: {size}, completed {completed_count}/{total_instances}, "
+                f"average objective (completed): {avg_completed_objective}, "
+                f"average problem time: {avg_problem_time:.2f}."
+            )
+
+            if completed_count == 0:
+                print(
+                    f"All instances timed out for size {size}; skipping remaining sizes."
+                )
+                break
     finally:
         if executor:
             executor.shutdown(wait=True)
@@ -177,18 +196,18 @@ def calculate_qscore(
 
 if __name__ == "__main__":
     # Input arguments
-    _NB_INSTANCES_PER_SIZE = 100
+    _NB_INSTANCES_PER_SIZE = 12
     _SIZE_RANGE = list(range(2, 30, 1))
     FILE_NAME = "qaoa-sim.json"
     INCLUDE_EXACT_RESULTS = False
     PROBLEM_TYPE = "max-cut"
-    TIMEOUT = 60
+    TIMEOUT = 10
     SOLVER = "QAOA"
     _SEED = 101200
     NUM_READS = 1024
     PROVIDER = None
     BACKEND = None
-    _PARALLEL_WORKERS = 8
+    _PARALLEL_WORKERS = 12
 
     calculate_qscore(
         nb_instances_per_size=_NB_INSTANCES_PER_SIZE,

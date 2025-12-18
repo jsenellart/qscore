@@ -1,14 +1,14 @@
 """Run a Q-score instance on one of the six solver types."""
+
 import argparse
+import multiprocessing as mp
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import networkx as nx
 import numpy as np
 from networkx import Graph
 from qiskit_optimization.applications import Clique, Maxcut
-
 from utils.max_clique import calculate_beta_max_clique, create_qubo_max_clique
 from utils.max_cut import calculate_beta_max_cut, create_qubo_max_cut
 
@@ -52,13 +52,15 @@ def parse_args() -> argparse.Namespace:
         default=None,
         required=False,
     )
-    parser.add_argument(
-        "-n",
-        "--num_reads",
-        help="Number of reads/samples in case of a QPU or Simulated Annealing solver",
-        type=int,
-        required=False,
-    ),
+    (
+        parser.add_argument(
+            "-n",
+            "--num_reads",
+            help="Number of reads/samples in case of a QPU or Simulated Annealing solver",
+            type=int,
+            required=False,
+        ),
+    )
     parser.add_argument(
         "-provider",
         "--provider",
@@ -99,6 +101,21 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def _process_wrapper(
+    queue: mp.Queue,
+    func: Callable,
+    args: tuple,
+    kwargs: dict,
+):
+    """Execute ``func`` and push (success, payload) to a queue."""
+
+    try:
+        result = func(*args, **kwargs)
+        queue.put((True, result))
+    except Exception as exc:  # pragma: no cover - propagated to parent
+        queue.put((False, exc))
+
+
 def run_with_timeout(
     func: Callable,
     timeout: Optional[int],
@@ -115,13 +132,34 @@ def run_with_timeout(
     if timeout is None or timeout <= 0:
         return func(*args, **kwargs), False
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout), False
-        except FuturesTimeoutError as exc:
-            future.cancel()
-            return np.nan, True
+    ctx = mp.get_context("spawn")
+    queue: mp.Queue = ctx.Queue()
+    process = ctx.Process(
+        target=_process_wrapper,
+        args=(queue, func, args, kwargs),
+        daemon=True,
+    )
+    process.start()
+    process.join(timeout)
+
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        queue.close()
+        queue.join_thread()
+        return np.nan, True
+
+    if queue.empty():
+        queue.close()
+        queue.join_thread()
+        return np.nan, True
+
+    success, payload = queue.get()
+    queue.close()
+    queue.join_thread()
+    if success:
+        return payload, False
+    raise payload
 
 
 def sample_non_empty_erdos_renyi_graph(
@@ -153,7 +191,7 @@ def main(
     num_reads: Optional[int] = None,
     provider: Optional[str] = None,
     backend: Optional[str] = None,
-) -> Tuple[float, float, float, Graph]:
+) -> tuple[float, float, float, Graph]:
     """
     Main routine to evaluate a Q-score instance.
 

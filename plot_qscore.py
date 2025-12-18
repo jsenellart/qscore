@@ -61,8 +61,15 @@ def plot_graph(
         data = json.load(json_file)
 
     problem_range = np.array(
-        [int(k) for k in data.keys() if k != "settings" and data[k]["result"] != []]
+        sorted(
+            int(k)
+            for k, v in data.items()
+            if k != "settings" and isinstance(v, dict) and v.get("result") not in (None, [])
+        )
     )
+    if problem_range.size == 0:
+        print("No completed problem sizes found in data; skipping plot.")
+        return
     problem_type = data["settings"]["PROBLEM_TYPE"]
     solver = data["settings"]["SOLVER"]
 
@@ -70,12 +77,17 @@ def plot_graph(
     mins_beta, maxes_beta, means_beta, stds_beta = [], [], [], []
     mins_time, maxes_time, means_time, stds_time = [], [], [], []
 
+    plotted_sizes = []
+
     if exact:
         seed = data["settings"]["SEED"]
         for size in problem_range:
             print(f"Starting exact calculation for size: {size}")
             results = np.array(data[str(size)]["result"])
             times = np.array(data[str(size)]["times"])
+
+            if len(results) == 0:
+                continue
 
             graphs = []  # Calculate graphs from seed
             for _ in range(len(results)):
@@ -126,6 +138,7 @@ def plot_graph(
             maxes_time.append(times.max())
             means_time.append(times.mean())
             stds_time.append(times.std())
+            plotted_sizes.append(size)
 
     else:
         calculate_beta_function = (
@@ -140,7 +153,7 @@ def plot_graph(
             results = results[~np.isnan(results)]
 
             if len(results) == 0:
-                break
+                continue
 
             betas = np.array(
                 [calculate_beta_function(size, result) for result in results]
@@ -154,6 +167,11 @@ def plot_graph(
             maxes_time.append(times.max())
             means_time.append(times.mean())
             stds_time.append(times.std())
+            plotted_sizes.append(size)
+
+    if not plotted_sizes:
+        print("No valid data points found after filtering; skipping plot.")
+        return
 
     mins_beta, maxes_beta, means_beta, stds_beta = (
         np.array(mins_beta),
@@ -167,16 +185,20 @@ def plot_graph(
         np.array(means_time),
         np.array(stds_time),
     )
+    problem_range = np.array(plotted_sizes)
 
     if time_constraint:
-        qscore = max(problem_range[np.where(means_beta > 0.2)])
+        feasible_mask = means_beta > 0.2
     else:
-        qscore = max(problem_range[np.where((means_beta > 0.2) & (means_time < 60))])
+        feasible_mask = (means_beta > 0.2) & (means_time < 60)
+
+    feasible_sizes = problem_range[feasible_mask]
+    qscore = int(feasible_sizes.max()) if feasible_sizes.size else None
 
     # Create plots:
-    problem_range = problem_range[: len(mins_beta)]
     fig, axs = plt.subplots(1, 2, figsize=(12, 8))
-    fig.suptitle(f"Q-score {problem_type} = {qscore} for solver: {solver}")
+    qscore_label = qscore if qscore is not None else "N/A"
+    fig.suptitle(f"Q-score {problem_type} = {qscore_label} for solver: {solver}")
 
     # Beta-plot
     axs[0].fill_between(
@@ -210,12 +232,15 @@ def plot_graph(
         label="mean beta",
     )
     axs[0].set_title(f"Beta {'(exact)' if exact else ''}")
+    x_min = max(problem_range.min() - 1, 0)
+    x_max = problem_range.max() + 1
     axs[0].set(
         xlabel="Problem size N",
         ylabel="Beta",
-        xlim=[0, problem_range[-1] + 5],
+        xlim=[x_min, x_max],
         ylim=[-0.3, 1.5],
     )
+    axs[0].set_xticks(problem_range)
     axs[0].axhline(y=0.2, color="r", linestyle="--")
 
     # Time-plot
@@ -223,9 +248,10 @@ def plot_graph(
     axs[1].set(
         xlabel="Problem size N",
         ylabel="Time (in s)",
-        xlim=[0, problem_range[-1] + 5],
+        xlim=[x_min, x_max],
         ylim=[0, min(90, max(maxes_time) * 1.2)],
     )
+    axs[1].set_xticks(problem_range)
     axs[1].fill_between(
         problem_range,
         mins_time,
