@@ -49,11 +49,17 @@ Multiple Q-score instances for various sizes can be run as follows:
     PROVIDER = None
     BACKEND = None
     _PARALLEL_WORKERS = 4
+    _MIN_TIMEOUT_SIZE = 12
     ```
 
 The `_PARALLEL_WORKERS` setting controls how many instances are executed concurrently
 when launching `calculate_qscore.py`. Increase it to shorten wall-clock time at the
 expense of higher CPU and memory usage; set it to `1` to run strictly sequentially.
+
+Use `_MIN_TIMEOUT_SIZE` (or the `--min_timeout_size` flag in `evaluate.py`) to delay
+process-based timeout enforcement until the problems reach a given size. Smaller
+instances run inline in the main process and only check the timeout after the run
+finishes, avoiding the ~3–4s overhead.
 
 2. Run the `calculate_qscore` script. A json file with results will be created inside the `data` folder.
     ```python
@@ -74,6 +80,9 @@ real execution timeout for the corresponding solvers by running each instance in
 process. When the deadline is hit the child process is terminated and the
 instance is counted as `beta = 0`. Spawning these short-lived worker processes
 introduces a constant overhead (around 3–4 seconds); take this into account when choosing tight timeout values or when running large batches.
+You can defer this process-based enforcement to larger problem sizes by setting
+`_MIN_TIMEOUT_SIZE` (batch runs) or `--min_timeout_size` (single runs); smaller problems
+will execute inline and only enforce the timeout after completion.
 
 ## Configuration
 

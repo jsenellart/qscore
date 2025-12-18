@@ -96,6 +96,15 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "--min_timeout_size",
+        help=(
+            "Smallest problem size that enforces process-based timeouts for QAOA;"
+            " smaller sizes only check the timeout after execution."
+        ),
+        type=int,
+        required=False,
+    )
 
     args = parser.parse_args()
     return args
@@ -191,6 +200,7 @@ def main(
     num_reads: Optional[int] = None,
     provider: Optional[str] = None,
     backend: Optional[str] = None,
+    min_timeout_size: Optional[int] = None,
 ) -> tuple[float, float, float, Graph]:
     """
     Main routine to evaluate a Q-score instance.
@@ -237,15 +247,34 @@ def main(
             max_clique = Clique(G)
             qp = max_clique.to_quadratic_program()
 
-        start_time = time.time()
-        objective_result, _timed_out = run_with_timeout(
-            run_QAOA,
-            timeout,
-            qp,
-            provider,
-            backend,
+        enforce_timeout = (
+            timeout is not None
+            and timeout > 0
+            and (min_timeout_size is None or size >= min_timeout_size)
         )
+        start_time = time.time()
+        if enforce_timeout:
+            objective_result, _timed_out = run_with_timeout(
+                run_QAOA,
+                timeout,
+                qp,
+                provider,
+                backend,
+            )
+        else:
+            objective_result = run_QAOA(
+                qp,
+                provider,
+                backend,
+            )
         end_time = time.time()
+        if (
+            not enforce_timeout
+            and timeout is not None
+            and timeout > 0
+            and (end_time - start_time) > timeout
+        ):
+            objective_result = float("nan")
     elif solver in ["Photonic_Simulation", "Photonic_quandela"]:
         from run.run_photonic_quandela import run_photonic_quandela
         from run.run_photonic_simulated import run_photonic_simulated
@@ -325,6 +354,7 @@ if __name__ == "__main__":
     solver = args.solver
     provider = args.provider
     backend = args.backend
+    min_timeout_size = args.min_timeout_size
 
     objective_result, beta, time_passed, G = main(
         problem_type=problem_type,
@@ -335,6 +365,7 @@ if __name__ == "__main__":
         num_reads=num_reads,
         provider=provider,
         backend=backend,
+        min_timeout_size=min_timeout_size,
     )
     print(
         f"Finished problem size: {size}, "

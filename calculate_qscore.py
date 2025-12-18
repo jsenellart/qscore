@@ -23,6 +23,7 @@ def _run_single_instance(
         Optional[int],
         Optional[str],
         Optional[str],
+        Optional[int],
         bool,
     ],
 ) -> tuple[float, float, Optional[Graph]]:
@@ -37,6 +38,7 @@ def _run_single_instance(
         num_reads,
         provider,
         backend,
+        min_timeout_size,
         keep_graph,
     ) = args
     objective_result, _, elapsed_time, graph = main(
@@ -48,6 +50,7 @@ def _run_single_instance(
         num_reads=num_reads,
         provider=provider,
         backend=backend,
+        min_timeout_size=min_timeout_size,
     )
     return objective_result, elapsed_time, graph if keep_graph else None
 
@@ -65,6 +68,7 @@ def calculate_qscore(
     provider: str,
     backend: str,
     parallel_workers: int = 1,
+    min_timeout_size: Optional[int] = None,
 ):
     """
     Run multiple Q-score instances for various problem sizes.
@@ -85,6 +89,7 @@ def calculate_qscore(
         provider: see parse_args in evaluate.py.
         backend: see parse_args in evaluate.py.
         parallel_workers: Number of worker processes to use for parallel execution.
+        min_timeout_size: Skip process-based timeout enforcement below this problem size.
 
     Raises:
         FileExistsError: When the provided path already exists.
@@ -110,6 +115,7 @@ def calculate_qscore(
             "PROVIDER": provider,
             "BACKEND": backend,
             "PARALLEL_WORKERS": parallel_workers,
+            "MIN_TIMEOUT_SIZE": min_timeout_size,
         }
     keep_graph = include_exact_results
     executor: Optional[ProcessPoolExecutor] = None
@@ -132,6 +138,7 @@ def calculate_qscore(
                     num_reads,
                     provider,
                     backend,
+                    min_timeout_size,
                     keep_graph,
                 )
                 for instance_seed in seeds_for_size
@@ -196,12 +203,13 @@ def calculate_qscore(
 
 if __name__ == "__main__":
     # Input arguments
-    _NB_INSTANCES_PER_SIZE = 12
+    _NB_INSTANCES_PER_SIZE = 100
     _SIZE_RANGE = list(range(2, 30, 1))
     FILE_NAME = "qaoa-sim.json"
     INCLUDE_EXACT_RESULTS = False
     PROBLEM_TYPE = "max-cut"
-    TIMEOUT = 10
+    TIMEOUT = 60
+    _MIN_TIMEOUT_SIZE = 14
     SOLVER = "QAOA"
     _SEED = 101200
     NUM_READS = 1024
@@ -222,4 +230,5 @@ if __name__ == "__main__":
         provider=PROVIDER,
         backend=BACKEND,
         parallel_workers=_PARALLEL_WORKERS,
+        min_timeout_size=_MIN_TIMEOUT_SIZE,
     )
