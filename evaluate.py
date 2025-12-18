@@ -10,13 +10,6 @@ import numpy as np
 from networkx import Graph
 from qiskit_optimization.applications import Clique, Maxcut
 
-from run.run_dwave_qpu import run_dwave_qpu
-from run.run_hybrid import run_hybrid
-from run.run_photonic_simulated import run_photonic_simulated
-from run.run_photonic_quandela import run_photonic_quandela
-from run.run_QAOA import run_QAOA
-from run.run_tabu import run_tabu
-from run.run_SA import run_SA
 from utils.max_clique import calculate_beta_max_clique, create_qubo_max_clique
 from utils.max_cut import calculate_beta_max_cut, create_qubo_max_cut
 
@@ -107,6 +100,26 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def sample_non_empty_erdos_renyi_graph(
+    size: int, probability: float, seed: Optional[int]
+):
+    """Generate an Erdős–Rényi graph with given edge probability that has edges."""
+
+    max_attempts = 100
+    attempt_seed = seed
+
+    for _ in range(max_attempts):
+        graph = nx.erdos_renyi_graph(size, probability, seed=attempt_seed)
+        if graph.number_of_edges() > 0:
+            return graph
+        if attempt_seed is None:
+            attempt_seed = np.random.randint(0, 1000000)
+        else:
+            attempt_seed += 1
+
+    raise ValueError("Failed to sample a graph with at least one edge.")
+
+
 def main(
     problem_type: str,
     size: int,
@@ -151,8 +164,10 @@ def main(
 
     if seed is None:
         seed = np.random.randint(100000)
-    G = nx.erdos_renyi_graph(size, 1 / 2, seed=seed)
+    G = sample_non_empty_erdos_renyi_graph(size, 1 / 2, seed)
     if solver == "QAOA":
+        from run.run_QAOA import run_QAOA
+
         if problem_type == "max-cut":
             max_cut = Maxcut(G)
             qp = max_cut.to_quadratic_program()
@@ -164,6 +179,9 @@ def main(
         objective_result = run_QAOA(qp, provider, backend)
         end_time = time.time()
     elif solver in ["Photonic_Simulation", "Photonic_quandela"]:
+        from run.run_photonic_quandela import run_photonic_quandela
+        from run.run_photonic_simulated import run_photonic_simulated
+
         if problem_type != "max-clique":
             raise ValueError(
                 "Photonic solvers can only be used for Max-Clique problems."
@@ -190,18 +208,26 @@ def main(
 
         # Solve problem instance
         if solver == "Advantage_system4.1":
+            from run.run_dwave_qpu import run_dwave_qpu
+
             start_time = time.time()
             objective_result = run_dwave_qpu(Q, size, solver, num_reads, timeout)
             end_time = time.time()
         elif solver == "hybrid":
+            from run.run_hybrid import run_hybrid
+
             start_time = time.time()
             objective_result = run_hybrid(Q, size, timeout)
             end_time = time.time()
         elif solver == "Simulated_Annealing":
+            from run.run_SA import run_SA
+
             start_time = time.time()
             objective_result = run_SA(Q, size, num_reads, timeout)
             end_time = time.time()
         elif solver == "tabu":
+            from run.run_tabu import run_tabu
+
             start_time = time.time()
             objective_result = run_tabu(Q, size, timeout)
             end_time = time.time()

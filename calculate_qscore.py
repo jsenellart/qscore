@@ -109,15 +109,15 @@ def calculate_qscore(
 
 if __name__ == "__main__":
     # Input arguments
-    _NB_INSTANCES_PER_SIZE = 1
-    _SIZE_RANGE = list(range(90000,20000, 1000))
-    FILE_NAME = "tabu.json"
+    _NB_INSTANCES_PER_SIZE = 100
+    _SIZE_RANGE = list(range(2, 30, 1))
+    FILE_NAME = "qaoa-sim.json"
     INCLUDE_EXACT_RESULTS = False
     PROBLEM_TYPE = "max-cut"
     TIMEOUT = 60
-    SOLVER = "tabu"
+    SOLVER = "QAOA"
     _SEED = 101200
-    NUM_READS = None
+    NUM_READS = 1024
     PROVIDER = None
     BACKEND = None
 

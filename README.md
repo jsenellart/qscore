@@ -99,11 +99,12 @@ python evaluate.py -p "max-clique" -s 5 -t 60 -n 1024 -solver "QAOA" -provider "
 ### Set up IBM configuration
 
 To use IBM hardware backends, one need to create and IBM Quantum account, which can be done [here](https://quantum-computing.ibm.com/lab). 
-After creating your account you can install your API key using:
+After creating your account you can install your API key using the Qiskit Runtime service:
 
 ```python
-from qiskit import IBMQ		
-IBMQ.save_account('MY_API_TOKEN')
+from qiskit_ibm_runtime import QiskitRuntimeService
+
+QiskitRuntimeService.save_account('MY_API_TOKEN')
 ```
 
 Example usage for the IBM Lima device:
