@@ -79,7 +79,7 @@ introduces a constant overhead (around 3–4 seconds); take this into account wh
 
 To use this code we assume that the reader has installed the requirements and set up access to the required solvers. 
 
-Requirements can be installed using pip and have been tested for `python3.9` and `python3.10`:
+Requirements can be installed using pip and have been tested for `python3.9`, `python3.10` and `python3.13`:
 ```terminal
 python -m pip install -r requirements.txt
 ```
