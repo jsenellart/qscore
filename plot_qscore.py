@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         help="Ignore time constraint",
         required=False,
     )
+    parser.add_argument(
+        "--show_envelope",
+        action="store_true",
+        help="Display min/max envelope shading",
+        required=False,
+    )
     args = parser.parse_args()
     return args
 
@@ -207,7 +213,10 @@ def _prepare_dataset(
 
 
 def plot_graphs(
-    files: list[str], exact: Optional[bool] = False, time_constraint: Optional[bool] = False
+    files: list[str],
+    exact: Optional[bool] = False,
+    time_constraint: Optional[bool] = False,
+    show_envelope: bool = False,
 ) -> None:
     """
     Plot Q-score graphs. Both the beta vs N and time vs N graphs are plotted.
@@ -250,6 +259,13 @@ def plot_graphs(
     x_min = max(min(all_sizes) - 1, 0)
     x_max = max(all_sizes) + 1
     time_ylim = min(90, max(np.max(dataset["maxes_time"]) for dataset in datasets) * 1.2)
+    if show_envelope:
+        beta_max_candidate = max(np.max(dataset["maxes_beta"]) for dataset in datasets)
+    else:
+        beta_max_candidate = max(
+            np.max(dataset["means_beta"] + dataset["stds_beta"]) for dataset in datasets
+        )
+    beta_ylim_upper = max(0.5, min(1.5, beta_max_candidate * 1.1))
 
     fig, axs = plt.subplots(1, 2, figsize=(12, 8))
     fig.suptitle(f"Q-score {problem_type} comparison ({len(datasets)} configurations)")
@@ -261,13 +277,14 @@ def plot_graphs(
         qscore_label = dataset["qscore"] if dataset["qscore"] is not None else "N/A"
         beta_line_label = f"{dataset['label']} (Q={qscore_label})"
 
-        axs[0].fill_between(
-            problem_range,
-            dataset["mins_beta"],
-            dataset["maxes_beta"],
-            color=color,
-            alpha=0.1,
-        )
+        if show_envelope:
+            axs[0].fill_between(
+                problem_range,
+                dataset["mins_beta"],
+                dataset["maxes_beta"],
+                color=color,
+                alpha=0.1,
+            )
 
         beta_lower_std = dataset["means_beta"] - dataset["stds_beta"]
         beta_upper_std = dataset["means_beta"] + dataset["stds_beta"]
@@ -290,13 +307,14 @@ def plot_graphs(
             label=beta_line_label,
         )
 
-        axs[1].fill_between(
-            problem_range,
-            dataset["mins_time"],
-            dataset["maxes_time"],
-            color=color,
-            alpha=0.1,
-        )
+        if show_envelope:
+            axs[1].fill_between(
+                problem_range,
+                dataset["mins_time"],
+                dataset["maxes_time"],
+                color=color,
+                alpha=0.1,
+            )
         axs[1].fill_between(
             problem_range,
             np.maximum(dataset["means_time"] - dataset["stds_time"], 0),
@@ -318,7 +336,7 @@ def plot_graphs(
         xlabel="Problem size N",
         ylabel="Beta",
         xlim=[x_min, x_max],
-        ylim=[-0.3, 1.5],
+        ylim=[-0.3, beta_ylim_upper],
     )
     axs[0].set_xticks(all_sizes)
     axs[0].axhline(y=0.2, color="r", linestyle="--")
@@ -344,4 +362,4 @@ if __name__ == "__main__":
     exact = args.exact
     time_constraint = args.time_constraint
 
-    plot_graphs(args.files, exact, time_constraint)
+    plot_graphs(args.files, exact, time_constraint, args.show_envelope)
