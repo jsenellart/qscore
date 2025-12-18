@@ -48,7 +48,13 @@ Multiple Q-score instances for various sizes can be run as follows:
     NUM_READS = 1024
     PROVIDER = None
     BACKEND = None
+    _PARALLEL_WORKERS = 4
     ```
+
+The `_PARALLEL_WORKERS` setting controls how many instances are executed concurrently
+when launching `calculate_qscore.py`. Increase it to shorten wall-clock time at the
+expense of higher CPU and memory usage; set it to `1` to run strictly sequentially.
+
 2. Run the `calculate_qscore` script. A json file with results will be created inside the `data` folder.
     ```python
     python calculate_qscore.py
