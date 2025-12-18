@@ -1,9 +1,8 @@
-"""
-Run a Q-score instance on one of the six solver types.
-"""
+"""Run a Q-score instance on one of the six solver types."""
 import argparse
 import time
-from typing import Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from typing import Callable, Optional, Tuple
 
 import networkx as nx
 import numpy as np
@@ -100,6 +99,31 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def run_with_timeout(
+    func: Callable,
+    timeout: Optional[int],
+    *args,
+    **kwargs,
+):
+    """Execute ``func`` enforcing a soft timeout.
+
+    Returns a tuple ``(result, timed_out)`` where ``timed_out`` indicates whether
+    the timeout was hit. When ``timeout`` is ``None`` or non-positive, the
+    callable executes directly.
+    """
+
+    if timeout is None or timeout <= 0:
+        return func(*args, **kwargs), False
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout), False
+        except FuturesTimeoutError as exc:
+            future.cancel()
+            return np.nan, True
+
+
 def sample_non_empty_erdos_renyi_graph(
     size: int, probability: float, seed: Optional[int]
 ):
@@ -176,7 +200,13 @@ def main(
             qp = max_clique.to_quadratic_program()
 
         start_time = time.time()
-        objective_result = run_QAOA(qp, provider, backend)
+        objective_result, _timed_out = run_with_timeout(
+            run_QAOA,
+            timeout,
+            qp,
+            provider,
+            backend,
+        )
         end_time = time.time()
     elif solver in ["Photonic_Simulation", "Photonic_quandela"]:
         from run.run_photonic_quandela import run_photonic_quandela
@@ -235,7 +265,11 @@ def main(
             raise NotImplementedError(f"Provided Solver {solver} is not implemented")
 
     # Calculate beta
-    if problem_type == "max-cut":
+    if objective_result is None or (
+        isinstance(objective_result, float) and np.isnan(objective_result)
+    ):
+        beta = 0.0
+    elif problem_type == "max-cut":
         beta = calculate_beta_max_cut(size, objective_result)
     elif problem_type == "max-clique":
         beta = calculate_beta_max_clique(size, objective_result)
