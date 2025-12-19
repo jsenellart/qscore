@@ -43,9 +43,33 @@ def parse_args() -> argparse.Namespace:
         required=False,
     )
     parser.add_argument(
-        "--show_envelope",
+        "--show_minmax",
         action="store_true",
         help="Display min/max envelope shading",
+        required=False,
+    )
+    parser.add_argument(
+        "--minmax_lines",
+        action="store_true",
+        help="Overlay min/max envelope as dotted lines instead of filled shading",
+        required=False,
+    )
+    parser.add_argument(
+        "--show_stddev",
+        action="store_true",
+        help="Display ±1σ shading",
+        required=False,
+    )
+    parser.add_argument(
+        "--stddev_lines",
+        action="store_true",
+        help="Overlay ±1σ bounds as dotted lines",
+        required=False,
+    )
+    parser.add_argument(
+        "--log_time",
+        action="store_true",
+        help="Plot elapsed time on a logarithmic scale",
         required=False,
     )
     args = parser.parse_args()
@@ -216,7 +240,11 @@ def plot_graphs(
     files: list[str],
     exact: Optional[bool] = False,
     time_constraint: Optional[bool] = False,
-    show_envelope: bool = False,
+    show_minmax: bool = False,
+    minmax_lines: bool = False,
+    show_stddev: bool = True,
+    stddev_lines: bool = False,
+    log_time: bool = False,
 ) -> None:
     """
     Plot Q-score graphs. Both the beta vs N and time vs N graphs are plotted.
@@ -259,7 +287,8 @@ def plot_graphs(
     x_min = max(min(all_sizes) - 1, 0)
     x_max = max(all_sizes) + 1
     time_ylim = min(90, max(np.max(dataset["maxes_time"]) for dataset in datasets) * 1.2)
-    if show_envelope:
+    min_time_observed = min(np.min(dataset["mins_time"]) for dataset in datasets)
+    if show_minmax:
         beta_max_candidate = max(np.max(dataset["maxes_beta"]) for dataset in datasets)
     else:
         beta_max_candidate = max(
@@ -277,7 +306,7 @@ def plot_graphs(
         qscore_label = dataset["qscore"] if dataset["qscore"] is not None else "N/A"
         beta_line_label = f"{dataset['label']} (Q={qscore_label})"
 
-        if show_envelope:
+        if show_minmax:
             axs[0].fill_between(
                 problem_range,
                 dataset["mins_beta"],
@@ -285,19 +314,54 @@ def plot_graphs(
                 color=color,
                 alpha=0.1,
             )
+        if minmax_lines:
+            axs[0].plot(
+                problem_range,
+                dataset["mins_beta"],
+                color=color,
+                linestyle=":",
+                linewidth=1,
+                alpha=0.8,
+            )
+            axs[0].plot(
+                problem_range,
+                dataset["maxes_beta"],
+                color=color,
+                linestyle=":",
+                linewidth=1,
+                alpha=0.8,
+            )
 
         beta_lower_std = dataset["means_beta"] - dataset["stds_beta"]
         beta_upper_std = dataset["means_beta"] + dataset["stds_beta"]
         if exact:
             beta_upper_std = np.minimum(beta_upper_std, 1.0)
 
-        axs[0].fill_between(
-            problem_range,
-            beta_lower_std,
-            beta_upper_std,
-            color=color,
-            alpha=0.2,
-        )
+        if show_stddev:
+            axs[0].fill_between(
+                problem_range,
+                beta_lower_std,
+                beta_upper_std,
+                color=color,
+                alpha=0.2,
+            )
+        if stddev_lines:
+            axs[0].plot(
+                problem_range,
+                beta_lower_std,
+                color=color,
+                linestyle="--",
+                linewidth=1,
+                alpha=0.8,
+            )
+            axs[0].plot(
+                problem_range,
+                beta_upper_std,
+                color=color,
+                linestyle="--",
+                linewidth=1,
+                alpha=0.8,
+            )
         axs[0].plot(
             problem_range,
             dataset["means_beta"],
@@ -307,7 +371,7 @@ def plot_graphs(
             label=beta_line_label,
         )
 
-        if show_envelope:
+        if show_minmax:
             axs[1].fill_between(
                 problem_range,
                 dataset["mins_time"],
@@ -315,13 +379,50 @@ def plot_graphs(
                 color=color,
                 alpha=0.1,
             )
-        axs[1].fill_between(
-            problem_range,
-            np.maximum(dataset["means_time"] - dataset["stds_time"], 0),
-            dataset["means_time"] + dataset["stds_time"],
-            color=color,
-            alpha=0.2,
-        )
+        if minmax_lines:
+            axs[1].plot(
+                problem_range,
+                dataset["mins_time"],
+                color=color,
+                linestyle=":",
+                linewidth=1,
+                alpha=0.8,
+            )
+            axs[1].plot(
+                problem_range,
+                dataset["maxes_time"],
+                color=color,
+                linestyle=":",
+                linewidth=1,
+                alpha=0.8,
+            )
+        time_lower_std = np.maximum(dataset["means_time"] - dataset["stds_time"], 0)
+        time_upper_std = dataset["means_time"] + dataset["stds_time"]
+        if show_stddev:
+            axs[1].fill_between(
+                problem_range,
+                time_lower_std,
+                time_upper_std,
+                color=color,
+                alpha=0.2,
+            )
+        if stddev_lines:
+            axs[1].plot(
+                problem_range,
+                time_lower_std,
+                color=color,
+                linestyle="--",
+                linewidth=1,
+                alpha=0.8,
+            )
+            axs[1].plot(
+                problem_range,
+                time_upper_std,
+                color=color,
+                linestyle="--",
+                linewidth=1,
+                alpha=0.8,
+            )
         axs[1].plot(
             problem_range,
             dataset["means_time"],
@@ -342,11 +443,16 @@ def plot_graphs(
     axs[0].axhline(y=0.2, color="r", linestyle="--")
 
     axs[1].set_title("Elapsed time")
+    if log_time:
+        axs[1].set_yscale("log")
+        lower_time_ylim = max(1e-2, min_time_observed * 0.8)
+    else:
+        lower_time_ylim = 0
     axs[1].set(
         xlabel="Problem size N",
         ylabel="Time (in s)",
         xlim=[x_min, x_max],
-        ylim=[0, max(time_ylim, 1)],
+        ylim=[lower_time_ylim, max(time_ylim, 1)],
     )
     axs[1].set_xticks(all_sizes)
     axs[1].axhline(y=60, color="r", linestyle="--")
@@ -362,4 +468,13 @@ if __name__ == "__main__":
     exact = args.exact
     time_constraint = args.time_constraint
 
-    plot_graphs(args.files, exact, time_constraint, args.show_envelope)
+    plot_graphs(
+        args.files,
+        exact,
+        time_constraint,
+        args.show_minmax,
+        args.minmax_lines,
+        args.show_stddev,
+        args.stddev_lines,
+        args.log_time,
+    )

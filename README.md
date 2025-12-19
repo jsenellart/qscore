@@ -73,6 +73,18 @@ finishes, avoiding the ~3–4s overhead.
     python plot_qscore.py -f "example.json" -e
     ```
 
+    Plot overlays can be customized via the following optional flags:
+
+    - `--show_minmax` fills the min/max envelope for beta and time.
+    - `--minmax_lines` draws dotted min/max borders (with or without the fill).
+    - `--show_stddev` shades the +/-1σ band around the mean curves.
+    - `--stddev_lines` adds dotted +/-1σ boundaries; useful when shading is disabled.
+    - `--log_time` switches the elapsed-time axis to a logarithmic scale.
+
+    Combine the toggles to keep multi-curve figures readable (for example,
+    `--minmax_lines --stddev_lines` to show only dotted bounds, or
+    `--show_minmax --show_stddev` for filled bands).
+
 ### Timeout behavior
 
 The `-t/--timeout` flag in `evaluate.py` and `calculate_qscore.py` enforces a
