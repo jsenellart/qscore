@@ -64,7 +64,7 @@ def run_photonic_quandela(
     n_samples: int,
     backend: Optional[str] = None,
     timeout: Optional[int] = None,
-) -> Tuple[float, float, float]:
+) -> Tuple[Optional[list[int]], float, float]:
     """
     Function that solves a Q-score instance on a the Ascella QPU
     Can only be used for Max-Clique problem instances.
@@ -77,8 +77,8 @@ def run_photonic_quandela(
         timeout: timeout parameter.
 
     Returns:
-        The largest found objective value. If no solution is found within the provided
-        timeout limit, np.nan is being returned.
+        Bitstring of the best clique, together with ``(end_time, start_time)``. ``None``
+        indicates that no feasible solution was found.
 
     Raises:
         ValueError in case a too small problem instance is provided.
@@ -86,9 +86,9 @@ def run_photonic_quandela(
     start = time.time()
     if list(G.edges) == []:
         print("Graph is empty, so no photonic sampling required.")
-        objective_result = 1
+        bitstring = [1] + [0] * (size - 1) if size > 0 else []
         end = time.time()
-        return objective_result, end, start
+        return bitstring, end, start
     max_clicks = 2 * int(np.log2(size)) + 2
     min_clicks = max(2, 2 * int(np.log2(size)) - 2)
 
@@ -106,13 +106,13 @@ def run_photonic_quandela(
             elif timeout is None:
                 results += shrunk_result
     end = time.time()
-    if results != []:
-        objective_result = max([len(result) for result in results])
-    else:
+    if not results:
         print("Failed to find a solution with given hardware within timeout limit")
-        objective_result = np.nan
+        return None, end, start
 
-    return objective_result, end, start
+    best_clique = max(results, key=len)
+    clique_set = set(best_clique)
+    return ([1 if i in clique_set else 0 for i in range(size)]), end, start
 
 
 def post_selectionDS(samples: List[Graph], k: int):

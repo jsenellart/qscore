@@ -8,13 +8,19 @@ from functools import partial
 from typing import Optional
 
 import neal
-import numpy as np
 from dwave.embedding.chain_strength import uniform_torque_compensation
+
+
+def _sample_to_bitstring(sample, size: int) -> list[int]:
+    bitstring = [0] * size
+    for key, value in sample.items():
+        bitstring[int(key)] = int(value)
+    return bitstring
 
 
 def run_SA(
     Q: defaultdict(int), size: int, num_reads: int, timeout: Optional[int] = None
-) -> float:
+) -> Optional[list[int]]:
     """
     Function that solves a Q-score instance on the D-Wave Simulated Annealing solver.
 
@@ -25,8 +31,7 @@ def run_SA(
         timeout: timeout parameter.
 
     Returns:
-        The largest found objective value. If no solution is found within the provided
-        timeout limit, np.nan is being returned.
+        Bitstring of the best found sample, or ``None`` if the timeout is exceeded.
     """
     start = time.time()
 
@@ -39,11 +44,9 @@ def run_SA(
         label=f"Problem-{size:2d}",
     )
 
-    objective_result = -sampleset.first.energy
-
     time_taken = time.time() - start
     if timeout is not None and time_taken > timeout:
         print("Failed to find a solution within timeout limit.")
-        objective_result = np.nan
+        return None
 
-    return objective_result
+    return _sample_to_bitstring(sampleset.first.sample, size)

@@ -2,7 +2,7 @@
 import os
 import time
 from multiprocessing import AuthenticationError
-from typing import Optional
+from typing import Optional, List
 
 from qiskit.circuit import ParameterVector, QuantumCircuit
 from qiskit.primitives import BackendSamplerV2, StatevectorSampler
@@ -148,7 +148,7 @@ def run_QAOA(
     backend: Optional[str] = None,
     number_of_shots: Optional[int] = None,
     max_attempts: Optional[int] = 10,
-) -> float:
+) -> List[int]:
     """
     Function that solves a Q-score instance using QAOA.
 
@@ -158,7 +158,7 @@ def run_QAOA(
         number_of_shots: Number of shots for hardware.
 
     Returns:
-        The found objective value.
+        Bitstring corresponding to the best found assignment.
 
     Raises:
         ValueError: if no feasible solution was found in max_attempts attempts.
@@ -187,8 +187,8 @@ def run_QAOA(
     for _ in range(max_attempts):
         qaoa_result = qaoa.solve(qubo_problem)
         if qaoa_result.status == OptimizationResultStatus.SUCCESS:
-            original_solution = converter.interpret(qaoa_result.x)
-            return qp.objective.evaluate(original_solution)
+            bitstring = [int(round(value)) for value in qaoa_result.x]
+            return bitstring
     raise ValueError("Could not find feasible solution")
 
 

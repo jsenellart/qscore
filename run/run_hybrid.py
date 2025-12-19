@@ -7,6 +7,13 @@ import dimod
 from dwave.system import LeapHybridSampler
 
 
+def _sample_to_bitstring(sample, size: int) -> list[int]:
+    bitstring = [0] * size
+    for key, value in sample.items():
+        bitstring[int(key)] = int(value)
+    return bitstring
+
+
 def _get_hybrid_sampler() -> LeapHybridSampler:
     """Create a LeapHybridSampler instance only when needed."""
     return LeapHybridSampler(solver={"category": "hybrid"})
@@ -16,7 +23,7 @@ def run_hybrid(
     Q: defaultdict(int),
     size: int,
     timeout: int,
-) -> float:
+) -> list[int]:
     """
     Function that solves a Q-score instance on the D-Wave hybrid solver.
 
@@ -26,14 +33,11 @@ def run_hybrid(
         timeout: timeout parameter.
 
     Returns:
-        The largest found objective value. If no solution is found within the provided
-        timeout limit, np.nan is being returned.
+        Bitstring of the best found sample.
     """
     bqm = dimod.BQM.from_qubo(Q)
     sampler = _get_hybrid_sampler()
     sampleset = sampler.sample(
         bqm, label=f"Problem-{size:2d}", time_limit=timeout
     )
-    objective_result = -sampleset.first.energy
-
-    return objective_result
+    return _sample_to_bitstring(sampleset.first.sample, size)

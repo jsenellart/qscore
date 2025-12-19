@@ -24,6 +24,7 @@ def _run_single_instance(
         Optional[str],
         Optional[str],
         Optional[int],
+        Optional[dict],
         bool,
     ],
 ) -> tuple[float, float, Optional[Graph]]:
@@ -39,6 +40,7 @@ def _run_single_instance(
         provider,
         backend,
         min_timeout_size,
+        solver_options,
         keep_graph,
     ) = args
     objective_result, _, elapsed_time, graph = main(
@@ -51,6 +53,7 @@ def _run_single_instance(
         provider=provider,
         backend=backend,
         min_timeout_size=min_timeout_size,
+        solver_options=solver_options,
     )
     return objective_result, elapsed_time, graph if keep_graph else None
 
@@ -69,6 +72,7 @@ def calculate_qscore(
     backend: str,
     parallel_workers: int = 1,
     min_timeout_size: Optional[int] = None,
+    solver_options: Optional[dict] = None,
 ):
     """
     Run multiple Q-score instances for various problem sizes.
@@ -90,6 +94,7 @@ def calculate_qscore(
         backend: see parse_args in evaluate.py.
         parallel_workers: Number of worker processes to use for parallel execution.
         min_timeout_size: Skip process-based timeout enforcement below this problem size.
+        solver_options: Extra keyword arguments forwarded to solver implementations.
 
     Raises:
         FileExistsError: When the provided path already exists.
@@ -116,6 +121,7 @@ def calculate_qscore(
             "BACKEND": backend,
             "PARALLEL_WORKERS": parallel_workers,
             "MIN_TIMEOUT_SIZE": min_timeout_size,
+            "SOLVER_OPTIONS": solver_options,
         }
     keep_graph = include_exact_results
     executor: Optional[ProcessPoolExecutor] = None
@@ -139,6 +145,7 @@ def calculate_qscore(
                     provider,
                     backend,
                     min_timeout_size,
+                    solver_options,
                     keep_graph,
                 )
                 for instance_seed in seeds_for_size
@@ -186,14 +193,14 @@ def calculate_qscore(
             avg_problem_time = float(np.array(times).mean()) if times else float("nan")
 
             print(
-                f"Finished problem size: {size}, completed {completed_count}/{total_instances}, "
-                f"average objective (completed): {avg_completed_objective}, "
-                f"average problem time: {avg_problem_time:.2f}."
+                f"{solver} - {problem_type} - problem size: {size}, completed {completed_count}/{total_instances}, "
+                f"average objective: {avg_completed_objective}, "
+                f"average resolution time: {avg_problem_time:.2f}."
             )
 
-            if completed_count == 0:
+            if completed_count < total_instances / 2:
                 print(
-                    f"All instances timed out for size {size}; skipping remaining sizes."
+                    f"At least half of the instances timed out for size {size}; skipping remaining sizes."
                 )
                 break
     finally:
@@ -204,18 +211,19 @@ def calculate_qscore(
 if __name__ == "__main__":
     # Input arguments
     _NB_INSTANCES_PER_SIZE = 100
-    _SIZE_RANGE = list(range(2, 30, 1))
-    FILE_NAME = "qaoa-sim.json"
+    _SIZE_RANGE = list(range(2, 18, 1))
+    FILE_NAME = "obliq-vqc-sim.json"
     INCLUDE_EXACT_RESULTS = False
     PROBLEM_TYPE = "max-cut"
     TIMEOUT = 60
     _MIN_TIMEOUT_SIZE = 14
-    SOLVER = "QAOA"
+    SOLVER = "obliq-vqc"
     _SEED = 101200
     NUM_READS = 1024
     PROVIDER = None
     BACKEND = None
-    _PARALLEL_WORKERS = 12
+    _PARALLEL_WORKERS = 10
+    _SOLVER_OPTIONS = {"train":{"optimizer": "cobyla"}} #"max_iter":5,"learning_rate":0.05}}
 
     calculate_qscore(
         nb_instances_per_size=_NB_INSTANCES_PER_SIZE,
@@ -231,4 +239,5 @@ if __name__ == "__main__":
         backend=BACKEND,
         parallel_workers=_PARALLEL_WORKERS,
         min_timeout_size=_MIN_TIMEOUT_SIZE,
+        solver_options=_SOLVER_OPTIONS,
     )

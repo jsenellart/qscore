@@ -3,7 +3,7 @@ Run a Q-score instance on the photonic simulated solver.
 """
 
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
@@ -11,9 +11,16 @@ from networkx import Graph
 from strawberryfields.apps import clique, sample
 
 
+def _nodes_to_bitstring(nodes: List[int], size: int) -> list[int]:
+    bitstring = [0] * size
+    for node in nodes:
+        bitstring[int(node)] = 1
+    return bitstring
+
+
 def run_photonic_simulated(
     G: Graph, size: int, n_samples: int, timeout: Optional[int] = None
-) -> Tuple[float, float, float]:
+) -> Tuple[Optional[list[int]], float, float]:
     """
     Function that solves a Q-score instance on a photonic simulator.
     Can only be used for Max-Clique problem instances.
@@ -25,11 +32,12 @@ def run_photonic_simulated(
         timeout: timeout parameter.
 
     Returns:
-        The largest found objective value. If no solution is found within the provided
-        timeout limit, np.nan is being returned.
+        Bitstring of the best clique, together with ``(end_time, start_time)``. ``None``
+        indicates that no feasible solution was found.
     """
     if G.size() == 0:
-        return 1, 0, 0
+        bitstring = _nodes_to_bitstring([0], size) if size > 0 else []
+        return bitstring, 0, 0
 
     # Extract the adjacency matrix
     adj = nx.to_numpy_array(G)
@@ -45,11 +53,14 @@ def run_photonic_simulated(
     # Find cliques
     start = time.time()  # We only consider classical runtime
     shrunk = [clique.shrink(sg, G) for sg in subgraphs]
-    objective_result = max([len(s) for s in shrunk])
+    best_clique = max(shrunk, key=len) if shrunk else None
 
     end = time.time()
     if timeout is not None and end - start > timeout:
         print("Failed to find a solution within timeout limit.")
-        objective_result = np.nan
+        return None, end, start
 
-    return objective_result, end, start
+    if best_clique is None:
+        return None, end, start
+
+    return _nodes_to_bitstring(best_clique, size), end, start

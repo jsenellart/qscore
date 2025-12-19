@@ -1,6 +1,7 @@
-"""Run a Q-score instance on one of the six solver types."""
+"""Run a Q-score instance on one of the supported solver types."""
 
 import argparse
+import json
 import multiprocessing as mp
 import time
 from typing import Callable, Optional
@@ -12,6 +13,28 @@ from qiskit_optimization.applications import Clique, Maxcut
 from utils.max_clique import calculate_beta_max_clique, create_qubo_max_clique
 from utils.max_cut import calculate_beta_max_cut, create_qubo_max_cut
 
+
+def _objective_from_bitstring(Q_dict, bitstring):
+    vector = np.asarray(bitstring, dtype=float)
+    energy = 0.0
+    for (i, j), coeff in Q_dict.items():
+        if coeff == 0:
+            continue
+        if i == j:
+            energy += coeff * vector[i]
+        else:
+            energy += coeff * vector[i] * vector[j]
+    return -energy
+
+
+def _build_qubo(problem_type: str, graph: Graph):
+    if problem_type == "max-cut":
+        return create_qubo_max_cut(graph)
+    if problem_type == "max-clique":
+        return create_qubo_max_clique(graph)
+    raise NotImplementedError(
+        f"Provided problem type {problem_type} is not implemented"
+    )
 
 def parse_args() -> argparse.Namespace:
     """
@@ -91,6 +114,10 @@ def parse_args() -> argparse.Namespace:
             "Simulated_Annealing",
             "Photonic_Simulation",
             "Photonic_quandela",
+            "Photonic_CVARVQE",
+            "obliq-vqc",
+            "obliq-static",
+            "obliq-hybrid",
             "QAOA",
         ],
         type=str,
@@ -103,6 +130,12 @@ def parse_args() -> argparse.Namespace:
             " smaller sizes only check the timeout after execution."
         ),
         type=int,
+        required=False,
+    )
+    parser.add_argument(
+        "--solver_options",
+        help="JSON string with solver-specific keyword arguments (e.g. CVaR-VQE settings).",
+        type=str,
         required=False,
     )
 
@@ -201,6 +234,7 @@ def main(
     provider: Optional[str] = None,
     backend: Optional[str] = None,
     min_timeout_size: Optional[int] = None,
+    solver_options: Optional[dict] = None,
 ) -> tuple[float, float, float, Graph]:
     """
     Main routine to evaluate a Q-score instance.
@@ -214,6 +248,8 @@ def main(
         num_reads: Number of reads/samples in case of a QPU or Simulated Annealing solver.
         provider: Name of hardware provider in case QAOA is selected.
         backend: Name of backend in case QAOA or photonic is selected.
+        min_timeout_size: Smallest problem size that should enforce process-based timeouts.
+        solver_options: Additional keyword arguments forwarded to solver backends.
 
     Returns:
         objective_result: solution to max-cut or max-clique.
@@ -237,6 +273,19 @@ def main(
     if seed is None:
         seed = np.random.randint(100000)
     G = sample_non_empty_erdos_renyi_graph(size, 1 / 2, seed)
+    qubo_cache = None
+
+    def get_qubo_dict():
+        nonlocal qubo_cache
+        if qubo_cache is None:
+            qubo_cache = _build_qubo(problem_type, G)
+        return qubo_cache
+
+    enforce_timeout = (
+        timeout is not None
+        and timeout > 0
+        and (min_timeout_size is None or size >= min_timeout_size)
+    )
     if solver == "QAOA":
         from run.run_QAOA import run_QAOA
 
@@ -247,14 +296,9 @@ def main(
             max_clique = Clique(G)
             qp = max_clique.to_quadratic_program()
 
-        enforce_timeout = (
-            timeout is not None
-            and timeout > 0
-            and (min_timeout_size is None or size >= min_timeout_size)
-        )
         start_time = time.time()
         if enforce_timeout:
-            objective_result, _timed_out = run_with_timeout(
+            qaoa_bitstring, _timed_out = run_with_timeout(
                 run_QAOA,
                 timeout,
                 qp,
@@ -262,7 +306,7 @@ def main(
                 backend,
             )
         else:
-            objective_result = run_QAOA(
+            qaoa_bitstring = run_QAOA(
                 qp,
                 provider,
                 backend,
@@ -275,6 +319,15 @@ def main(
             and (end_time - start_time) > timeout
         ):
             objective_result = float("nan")
+        elif (
+            isinstance(qaoa_bitstring, float) and np.isnan(qaoa_bitstring)
+        ) or qaoa_bitstring is None:
+            objective_result = float("nan")
+        else:
+            objective_result = _objective_from_bitstring(
+                get_qubo_dict(),
+                qaoa_bitstring,
+            )
     elif solver in ["Photonic_Simulation", "Photonic_quandela"]:
         from run.run_photonic_quandela import run_photonic_quandela
         from run.run_photonic_simulated import run_photonic_simulated
@@ -285,51 +338,174 @@ def main(
             )
 
         if solver == "Photonic_Simulation":
-            objective_result, end_time, start_time = run_photonic_simulated(
+            bitstring, end_time, start_time = run_photonic_simulated(
                 G, size=size, n_samples=num_reads, timeout=timeout
             )
         elif solver == "Photonic_quandela":
-            objective_result, end_time, start_time = run_photonic_quandela(
+            bitstring, end_time, start_time = run_photonic_quandela(
                 G, size=size, backend=backend, n_samples=num_reads, timeout=timeout
             )
-    else:
-        # Create qubo:
-        if problem_type == "max-cut":
-            Q = create_qubo_max_cut(G)
-        elif problem_type == "max-clique":
-            Q = create_qubo_max_clique(G)
+
+        if bitstring is None:
+            objective_result = float("nan")
         else:
-            raise NotImplementedError(
-                f"Provided problem type {problem_type} is not implemented"
+            objective_result = _objective_from_bitstring(
+                get_qubo_dict(),
+                bitstring,
+            )
+    elif solver == "Photonic_CVARVQE":
+        from run.run_photonic_cvarvqe import run_photonic_cvarvqe
+
+        solver_kwargs = solver_options or {}
+        start_time = time.time()
+        if enforce_timeout:
+            cvar_bitstring, _timed_out = run_with_timeout(
+                run_photonic_cvarvqe, 
+                timeout, 
+                G, 
+                problem_type, 
+                **solver_kwargs
+            )
+        else:
+            cvar_bitstring = run_photonic_cvarvqe(
+                G, problem_type, **solver_kwargs
+            )
+        end_time = time.time()
+        if (
+            not enforce_timeout
+            and timeout is not None
+            and timeout > 0
+            and (end_time - start_time) > timeout
+        ):
+            objective_result = float("nan")
+        elif (
+            isinstance(cvar_bitstring, float) and np.isnan(cvar_bitstring)
+        ) or cvar_bitstring is None:
+            objective_result = float("nan")
+        else:
+            objective_result = _objective_from_bitstring(
+                get_qubo_dict(),
+                cvar_bitstring,
+            )
+    elif solver in {"obliq-vqc", "obliq-static", "obliq-hybrid"}:
+        from run.run_obliq import run_obliq_solver, _qubo_dict_to_matrix, train_obliq_vqc_coeffs
+
+        Q_dict = get_qubo_dict()
+        Q_matrix = _qubo_dict_to_matrix(Q_dict, size)
+        solver_kwargs = dict(solver_options or {})
+        graph_mode = solver_kwargs.pop("graph_mode", 0)
+        nsamples = solver_kwargs.pop("nsamples", 5000)
+        num_rep = solver_kwargs.pop("num_rep", 10)
+        coeffs = solver_kwargs.pop("coeffs", None)
+        train_options = solver_kwargs.pop("train", None)
+        real_machine = solver_kwargs.pop("real_machine", False)
+        backend_override = solver_kwargs.pop("backend", None)
+        token = solver_kwargs.pop("token", None)
+        if solver_kwargs:
+            raise ValueError(
+                f"Unsupported ObliQ solver options: {', '.join(solver_kwargs.keys())}"
             )
 
+        variant_map = {
+            "obliq-vqc": "baseline-vqc",
+            "obliq-static": "obliq-static",
+            "obliq-hybrid": "obliq-hybrid",
+        }
+
+        start_time = time.time()
+        training_history = None
+        if train_options:
+            variant_name = variant_map[solver]
+            if variant_name == "obliq-static":
+                raise ValueError("Coefficient training is only available for VQC or hybrid variants.")
+            if isinstance(train_options, bool):
+                train_options = {}
+            trained_coeffs, training_history = train_obliq_vqc_coeffs(
+                Q_matrix,
+                variant=variant_name,
+                initial_coeffs=coeffs,
+                nsamples=nsamples,
+                num_rep=num_rep,
+                graph_mode=graph_mode,
+                real_machine=real_machine,
+                backend=backend_override or backend,
+                token=token,
+                **train_options,
+            )
+            coeffs = trained_coeffs
+
+        obliq_args = dict(
+            Q=Q_matrix,
+            variant=variant_map[solver],
+            nsamples=nsamples,
+            num_rep=num_rep,
+            graph_mode=graph_mode,
+            coeffs=coeffs,
+            real_machine=real_machine,
+            backend=backend_override or backend,
+            token=token,
+        )
+
+        if enforce_timeout:
+            obliq_result, _timed_out = run_with_timeout(
+                run_obliq_solver,
+                timeout,
+                **obliq_args,
+            )
+        else:
+            obliq_result = run_obliq_solver(**obliq_args)
+        if training_history and hasattr(obliq_result, "metadata"):
+            obliq_result.metadata["training"] = training_history
+        end_time = time.time()
+        if (
+            not enforce_timeout
+            and timeout is not None
+            and timeout > 0
+            and (end_time - start_time) > timeout
+        ):
+            objective_result = float("nan")
+        elif isinstance(obliq_result, float) and np.isnan(obliq_result):
+            objective_result = float("nan")
+        else:
+            objective_result = _objective_from_bitstring(Q_dict, obliq_result.bitstring)
+    else:
+        Q = get_qubo_dict()
+
+        solver_bitstring = None
         # Solve problem instance
         if solver == "Advantage_system4.1":
             from run.run_dwave_qpu import run_dwave_qpu
 
             start_time = time.time()
-            objective_result = run_dwave_qpu(Q, size, solver, num_reads, timeout)
+            solver_bitstring = run_dwave_qpu(Q, size, solver, num_reads, timeout)
             end_time = time.time()
         elif solver == "hybrid":
             from run.run_hybrid import run_hybrid
 
             start_time = time.time()
-            objective_result = run_hybrid(Q, size, timeout)
+            solver_bitstring = run_hybrid(Q, size, timeout)
             end_time = time.time()
         elif solver == "Simulated_Annealing":
             from run.run_SA import run_SA
 
             start_time = time.time()
-            objective_result = run_SA(Q, size, num_reads, timeout)
+            solver_bitstring = run_SA(Q, size, num_reads, timeout)
             end_time = time.time()
         elif solver == "tabu":
             from run.run_tabu import run_tabu
 
             start_time = time.time()
-            objective_result = run_tabu(Q, size, timeout)
+            solver_bitstring = run_tabu(Q, size, timeout)
             end_time = time.time()
         else:
             raise NotImplementedError(f"Provided Solver {solver} is not implemented")
+
+        if solver_bitstring is None or (
+            isinstance(solver_bitstring, float) and np.isnan(solver_bitstring)
+        ):
+            objective_result = float("nan")
+        else:
+            objective_result = _objective_from_bitstring(Q, solver_bitstring)
 
     # Calculate beta
     if objective_result is None or (
@@ -355,6 +531,12 @@ if __name__ == "__main__":
     provider = args.provider
     backend = args.backend
     min_timeout_size = args.min_timeout_size
+    solver_options = None
+    if args.solver_options:
+        try:
+            solver_options = json.loads(args.solver_options)
+        except json.JSONDecodeError as exc:  # pragma: no cover - CLI validation
+            raise ValueError(f"Invalid solver options JSON: {exc}") from exc
 
     objective_result, beta, time_passed, G = main(
         problem_type=problem_type,
@@ -366,6 +548,7 @@ if __name__ == "__main__":
         provider=provider,
         backend=backend,
         min_timeout_size=min_timeout_size,
+        solver_options=solver_options,
     )
     print(
         f"Finished problem size: {size}, "

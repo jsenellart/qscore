@@ -9,6 +9,8 @@ This repository contains python code to run the Q-score (Max-Cut and Max-Clique)
 - D-Wave hybrid solver.
 - Gate-based hardware using QAOA on QuantumInspire and IBM hardware or simulators.
 - Gaussian Boson Sampling, a form of photonic quantum computing, both simulated an using the 12-mode Quandela QPU.   
+- Photonic CVaR-VQE QUBO solver derived from Quandela's in-house implementation.
+- ObliQ photonic solvers (static, VQC, and hybrid circuits as in [ObliQ: Solving Quadratic Unconstrained Binary Optimization Problems on Real Photonic Quantum Machines](https://dl.acm.org/doi/10.1145/3771573).
 
 For an introduction to the Q-score, see the reference below.
 Q-score instances for Max-Cut or Max-Clique optimization problem can be run for different sizes and timeout limits. If no result is found within the allowed time limit, no objective result and a beta value of `0` is returned. Note that for the QPU solvers, the time limit considers embedding time only. The actual computation time will be slightly higher, but this difference will be in the order of milliseconds and will hence not influence the results. For similar reasons, for the photonic simulator, we only apply the time constraint to the classical runtime of the algorithm. To compute the Q-score, one runs for increasing graph size sufficiently many instances of the given code to check whether the average beta is larger than `0.2`.
@@ -50,6 +52,14 @@ Multiple Q-score instances for various sizes can be run as follows:
     BACKEND = None
     _PARALLEL_WORKERS = 4
     _MIN_TIMEOUT_SIZE = 12
+    _SOLVER_OPTIONS = {
+        "nb_samples": 4096,
+        "nb_inputs": 2,
+        "platform": "sim:ascella",
+        "goal": "min",
+        "max_iter": 10,
+        "cvar_alpha": 0.8,
+    }
     ```
 
 The `_PARALLEL_WORKERS` setting controls how many instances are executed concurrently
@@ -60,6 +70,13 @@ Use `_MIN_TIMEOUT_SIZE` (or the `--min_timeout_size` flag in `evaluate.py`) to d
 process-based timeout enforcement until the problems reach a given size. Smaller
 instances run inline in the main process and only check the timeout after the run
 finishes, avoiding the ~3–4s overhead.
+
+`_SOLVER_OPTIONS` (or `--solver_options '{"...": ...}'` for single runs) forwards
+keyword arguments to solver-specific integrations. For `Photonic_CVARVQE` the supported
+keys mirror the Quandela implementation: `nb_samples`, `nb_inputs`, `run_on_qpu`,
+`run_on_gpu`, `platform`, `offset`, `goal`, `max_iter`, and `cvar_alpha`.
+For ObliQ solvers, wrap coefficient-training parameters inside a `"train"` dict;
+set `"optimizer": "cobyla"` to switch from the default Adam loop to gradient-free COBYLA updates.
 
 2. Run the `calculate_qscore` script. A json file with results will be created inside the `data` folder.
     ```python
@@ -95,6 +112,50 @@ introduces a constant overhead (around 3–4 seconds); take this into account wh
 You can defer this process-based enforcement to larger problem sizes by setting
 `_MIN_TIMEOUT_SIZE` (batch runs) or `--min_timeout_size` (single runs); smaller problems
 will execute inline and only enforce the timeout after completion.
+
+### Photonic CVaR-VQE solver
+
+The `Photonic_CVARVQE` solver wraps Quandela's optimized CVaR-VQE routine for QUBO
+instances. Supply its parameters via `_SOLVER_OPTIONS`/`--solver_options`, for example:
+
+```python
+python evaluate.py -p "max-cut" -s 12 -t 60 -solver "Photonic_CVARVQE" \
+    --solver_options '{"nb_samples": 4096, "nb_inputs": 2, "platform": "sim:ascella"}'
+```
+
+Only Max-Cut and Max-Clique workloads are supported; the solver converts the sampled
+bit strings back into Q-score objectives (cut size or clique size) before reporting
+`beta` values.
+
+### ObliQ photonic solvers
+
+The ObliQ static, VQC, and hybrid solvers reproduce the circuits described in
+["ObliQ: Solving Quadratic Unconstrained Binary Optimization Problems on Real Photonic Quantum Machines"](https://dl.acm.org/doi/10.1145/3771573) (SIGMETRICS 2025, Aditya Ranjan *et al.*).
+Select them via `-solver obliq-static`, `obliq-vqc`, or `obliq-hybrid`. All three share
+the same solver options:
+
+- `nsamples`, `num_rep`, `graph_mode`: tune sampling depth, anchor repetitions, and
+    the heuristic used in `solution_guesses`. Defaults are `nsamples = 5000`,
+    `num_rep = 10`, `graph_mode = 0`.
+- `backend`, `token`, `real_machine`: forward choices to Perceval (use `real_machine`
+    or set `backend` like `qpu:ascella`). Defaults are `backend = None`, `token = None`,
+    `real_machine = False`.
+- `coeffs`: initial VQC parameter vector (optional; defaults to zeros when omitted).
+- `train`: dictionary enabling coefficient optimization before each evaluation
+    (disabled unless present). Defaults for the trainer are `optimizer = "adam"`,
+    `max_iter = 5`, `learning_rate = 0.05`, `finite_diff_step = pi/4`,
+    `beta1 = 0.9`, `beta2 = 0.999`, and `epsilon = 1e-8`. Set
+    `{"optimizer": "cobyla"}` for a gradient-free run.
+
+Example CLI usage:
+
+```bash
+python evaluate.py -p max-cut -s 8 -solver obliq-hybrid --solver_options '{
+        "nsamples": 4096,
+        "num_rep": 12,
+        "train": {"max_iter": 5, "optimizer": "cobyla"}
+}'
+```
 
 ## Configuration
 
