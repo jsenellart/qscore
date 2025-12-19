@@ -11,7 +11,7 @@ from perceval.algorithm import Sampler
 from perceval.components.unitary_components import BS, PERM, PS
 from scipy.optimize import minimize
 
-from run.lib.obliq_utils import (
+from run.obliq_lib.obliq_utils import (
     ObliqResult,
     qubo_objective,
     solution_guesses,
