@@ -11,7 +11,7 @@ import numpy as np
 from networkx.algorithms.approximation.maxcut import one_exchange
 
 from utils.max_clique import calculate_beta_max_clique, naive_clique_size
-from utils.max_cut import calculate_beta_max_cut
+from utils.max_cut import calculate_beta_max_cut, exact_max_cut
 
 
 def parse_args() -> argparse.Namespace:
@@ -132,7 +132,7 @@ def _prepare_dataset(
             else:
                 exact_results = np.array(
                     [
-                        one_exchange(G)[0]
+                        exact_max_cut(G)
                         if problem_type == "max-cut"
                         else nx.max_weight_clique(G, weight=None)[1]
                         for G in graphs

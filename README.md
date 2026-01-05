@@ -10,6 +10,7 @@ This repository contains python code to run the Q-score (Max-Cut and Max-Clique)
 - Gate-based hardware using QAOA on QuantumInspire and IBM hardware or simulators.
 - Gaussian Boson Sampling, a form of photonic quantum computing, both simulated an using the 12-mode Quandela QPU.   
 - Photonic CVaR-VQE QUBO solver derived from Quandela's in-house implementation.
+- Photonic VQE solver integrating the Lucy GenericVqe ansatz for QUBO workloads.
 - ObliQ photonic solvers (static, VQC, and hybrid circuits as in [ObliQ: Solving Quadratic Unconstrained Binary Optimization Problems on Real Photonic Quantum Machines](https://dl.acm.org/doi/10.1145/3771573).
 
 For an introduction to the Q-score, see the reference below.
@@ -126,6 +127,30 @@ python evaluate.py -p "max-cut" -s 12 -t 60 -solver "Photonic_CVARVQE" \
 Only Max-Cut and Max-Clique workloads are supported; the solver converts the sampled
 bit strings back into Q-score objectives (cut size or clique size) before reporting
 `beta` values.
+
+### Photonic VQE solver
+
+The `Photonic_VQE` backend wraps the Quandela GenericVqe ansatz, running a photonic
+variational circuit (local `SLOS` simulator by default) on the Q-score QUBO.
+Configure it via `--solver_options`:
+
+- `shots` (default `10000`): number of samples per iteration.
+- `method` (default `"COBYLA"`): SciPy optimizer passed to the underlying minimizer.
+- `max_iter` (default `200`): optimization iterations.
+- `rots` (default `["Y"]`), `entanglement_type` (default `"linear"`), `ctype`
+    (default `"cx"`): ansatz layout controls.
+- `input_state` (default all-zero), `backend`/`token` (specify Quandela remote processors),
+    `cvar_alpha` (optional CVaR-like tail averaging, set to `None` or omit for plain VQE).
+
+Example run (local simulator):
+
+```bash
+python evaluate.py -p max-cut -s 8 -solver Photonic_VQE --solver_options '{
+        "shots": 5000,
+        "max_iter": 150,
+        "cvar_alpha": 0.25
+}'
+```
 
 ### ObliQ photonic solvers
 

@@ -115,6 +115,7 @@ def parse_args() -> argparse.Namespace:
             "Photonic_Simulation",
             "Photonic_quandela",
             "Photonic_CVARVQE",
+            "Photonic_VQE",
             "obliq-vqc",
             "obliq-static",
             "obliq-hybrid",
@@ -386,6 +387,42 @@ def main(
             objective_result = _objective_from_bitstring(
                 get_qubo_dict(),
                 cvar_bitstring,
+            )
+    elif solver == "Photonic_VQE":
+        from run.run_photonic_vqe import run_photonic_vqe
+
+        solver_kwargs = solver_options or {}
+        start_time = time.time()
+        if enforce_timeout:
+            vqe_bitstring, _timed_out = run_with_timeout(
+                run_photonic_vqe,
+                timeout,
+                G,
+                problem_type,
+                **solver_kwargs,
+            )
+        else:
+            vqe_bitstring = run_photonic_vqe(
+                G,
+                problem_type,
+                **solver_kwargs,
+            )
+        end_time = time.time()
+        if (
+            not enforce_timeout
+            and timeout is not None
+            and timeout > 0
+            and (end_time - start_time) > timeout
+        ):
+            objective_result = float("nan")
+        elif (
+            isinstance(vqe_bitstring, float) and np.isnan(vqe_bitstring)
+        ) or vqe_bitstring is None:
+            objective_result = float("nan")
+        else:
+            objective_result = _objective_from_bitstring(
+                get_qubo_dict(),
+                vqe_bitstring,
             )
     elif solver in {"obliq-vqc", "obliq-static", "obliq-hybrid"}:
         from run.run_obliq import run_obliq_solver, _qubo_dict_to_matrix, train_obliq_vqc_coeffs

@@ -212,18 +212,18 @@ if __name__ == "__main__":
     # Input arguments
     _NB_INSTANCES_PER_SIZE = 100
     _SIZE_RANGE = list(range(2, 18, 1))
-    FILE_NAME = "obliq-vqc-sim.json"
+    FILE_NAME = "photonic-vqe-0.25.json"
     INCLUDE_EXACT_RESULTS = False
     PROBLEM_TYPE = "max-cut"
     TIMEOUT = 60
     _MIN_TIMEOUT_SIZE = 14
-    SOLVER = "obliq-vqc"
+    SOLVER = "Photonic_VQE"
     _SEED = 101200
     NUM_READS = 1024
     PROVIDER = None
     BACKEND = None
     _PARALLEL_WORKERS = 10
-    _SOLVER_OPTIONS = {"train":{"optimizer": "cobyla"}} #"max_iter":5,"learning_rate":0.05}}
+    _SOLVER_OPTIONS = {"cvar_alpha": 0.25} #"train":{"optimizer": "cobyla"}} #"max_iter":5,"learning_rate":0.05}}
 
     calculate_qscore(
         nb_instances_per_size=_NB_INSTANCES_PER_SIZE,
